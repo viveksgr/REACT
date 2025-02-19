@@ -11,7 +11,7 @@ function out_file = REACT_Mask_SPM(mask_savedir,  subj_list, pet_atlas_file, gm_
 
     % Load gray matter mask and check dimensions
     if nargin<5
-        thresh = zeros(1,length( pet_atlas_file))+0.1;
+        thresh = zeros(1,length( pet_atlas_file))+0.01;
     end
 
     gray_mask = spm_vol(gm_mask_file);

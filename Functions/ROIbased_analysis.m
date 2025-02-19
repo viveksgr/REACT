@@ -6,6 +6,7 @@ function [Tmat] = ROIbased_analysis(save_dir,aal_file,aal_labels,opt)
 
     % opt.num = 90;
     % opt.fname = 'rtmap_pos.nii'
+    % opt.method
     
     % List all neurotransmitter directories
     neurotransmitter_dirs = dir(fullfile(save_dir, 'react_mask_Normalized*'));
@@ -23,27 +24,28 @@ function [Tmat] = ROIbased_analysis(save_dir,aal_file,aal_labels,opt)
         neurotransmitter_dir = fullfile(save_dir, neurotransmitter_dirs(n_idx).name);
         fprintf('Processing neurotransmitter: %s\n', neurotransmitter_dirs(n_idx).name);
         
-        file_tmap = spm_read_vols(spm_vol(fullfile( neurotransmitter_dir ,opt.fname )));
-        Tmat(n_idx,:) = compute_combined_roi_t_scores( file_tmap ,   aal_masks);
-
-        % % Apply TFCE
-        % % TFCE parameters (these may vary depending on the library):
-        % H = 1; % Height exponent
-        % E = 0.1; % Extent exponent
-        % dh = 0.1; % Step size
-        % connectivity = 26; % 3D connectivity for clusters
-        % 
-        % % % Apply TFCE
-        % file_tmap(isnan(file_tmap))=0;
-        % tfce_scores = matlab_tfce_transform(file_tmap , H, E, dh, connectivity);
-        % ref_vol = spm_vol(fullfile( neurotransmitter_dir ,opt.fname ));
-        % 
-        % % save_statistical_maps_neutral(ref_vol, save_dir,  tfce_scores, sprintf('tfce_%s', neurotransmitter_dirs(n_idx).name))
-        % 
-        % tfce_vol = ref_vol; % Copy metadata
-        % tfce_vol.fname = fullfile(save_dir,neurotransmitter_dirs(n_idx).name,'tfce.nii');
-        % spm_write_vol(tfce_vol, tfce_scores);
+        tmap_path = fullfile( neurotransmitter_dir ,opt.fname );
+        file_tmap = spm_read_vols(spm_vol(  tmap_path));
+        Tmat(n_idx,:) = compute_combined_roi_t_scores( file_tmap ,   aal_masks,opt.method);
+        
     end
 end
 
-
+%% Total fking cluster elimination
+% % Apply TFCE
+% % TFCE parameters (these may vary depending on the library):
+% H = 1; % Height exponent
+% E = 0.1; % Extent exponent
+% dh = 0.1; % Step size
+% connectivity = 26; % 3D connectivity for clusters
+%
+% % % Apply TFCE
+% file_tmap(isnan(file_tmap))=0;
+% tfce_scores = matlab_tfce_transform(file_tmap , H, E, dh, connectivity);
+% ref_vol = spm_vol(fullfile( neurotransmitter_dir ,opt.fname ));
+%
+% % save_statistical_maps_neutral(ref_vol, save_dir,  tfce_scores, sprintf('tfce_%s', neurotransmitter_dirs(n_idx).name))
+%
+% tfce_vol = ref_vol; % Copy metadata
+% tfce_vol.fname = fullfile(save_dir,neurotransmitter_dirs(n_idx).name,'tfce.nii');
+% spm_write_vol(tfce_vol, tfce_scores);

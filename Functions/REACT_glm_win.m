@@ -1,4 +1,4 @@
-function REACT_glm_win(save_dir, subj_list, pet_atlas_file, mask_file, subjs)
+function REACT_glm_win(save_dir, subj_list, pet_atlas_file, mask_file, subjs,opt)
     % Adapted REACT GLM function using SPM for compatibility with Windows.
     % Input:
     %   save_dir: directory for saving output files
@@ -8,7 +8,6 @@ function REACT_glm_win(save_dir, subj_list, pet_atlas_file, mask_file, subjs)
     %   varargin: additional optional parameters (e.g., nuisance regressors)
 
     % Parse optional inputs
-    opt = struct('mnibrain', '', 'norm_method', 'demean', 'save_name', '', 'nuisance', [], 'param', []);
     % opt = G_SparseArgs(opt, varargin);
     opt.save_name = subjs;
     norm_meth = lower(opt.norm_method);
@@ -49,7 +48,10 @@ function REACT_glm_win(save_dir, subj_list, pet_atlas_file, mask_file, subjs)
     stdbrain_data = spm_read_vols(stdbrain);
 
     % Subject loop
-    for sidx = 1:length(subj_list)
+    fprintf('\n')
+    num_pcs = zeros(length(subj_list),numel(all_pet_atlas_file));
+    for sidx = 1  :length(subj_list)
+        fprintf('Running subject: %02d/%02d\n',sidx,length(subj_list))
         if ~isempty(opt.nuisance)
             nui_mat = opt.nuisance{sidx};
         else
@@ -70,9 +72,10 @@ function REACT_glm_win(save_dir, subj_list, pet_atlas_file, mask_file, subjs)
         vol_fmri = spm_vol(in_fmri);
         fmri_data = spm_read_vols(vol_fmri);
         [num_voxels, nb_fmri_vol] = size(reshape(fmri_data, [], size(fmri_data, 4)));
-
+        
+        % nb_fmri_vol2 = 500; 
+        nb_fmri_vol2 = nb_fmri_vol;
         % Iterate through each PET atlas file
-        beta_mat = zeros(numel(all_pet_atlas_file),nb_fmri_vol);
         for pet_idx = 1:numel(all_pet_atlas_file)
             pet_file = all_pet_atlas_file{pet_idx};
             [~, pet_nam, ~] = fileparts(pet_file);
@@ -99,6 +102,9 @@ function REACT_glm_win(save_dir, subj_list, pet_atlas_file, mask_file, subjs)
 
             % Normalization of fMRI data across time
             rsfmri = reshape(fmri_data, [], nb_fmri_vol);
+
+            % nb_fmri_vol = 500;
+            rsfmri = rsfmri(:,1:  nb_fmri_vol2);
             switch norm_meth
                 case 'zscore'
                     y = (rsfmri - mean(rsfmri, 1)) ./ std(rsfmri, 0, 1);
@@ -111,12 +117,27 @@ function REACT_glm_win(save_dir, subj_list, pet_atlas_file, mask_file, subjs)
             x_stage1 = pet_data_reshaped(stage1_mask(:), :);
 
             % Stage 1 regression to estimate beta1
-            beta1 = nan(nb_fmri_vol, 1);
-            for k = 1:nb_fmri_vol
-                tmp = regress(y_stage1(:, k), [ones(size(x_stage1, 1), 1), x_stage1]);
-                beta1(k) = tmp(2); % Store beta coefficient
+            switch opt.reg_method
+                case 'regression'
+                    beta1 = nan(nb_fmri_vol2, 1);
+                    for k = 1:nb_fmri_vol2
+                        tmp = regress(y_stage1(:, k), [ones(size(x_stage1, 1), 1), x_stage1]);
+                        beta1(k) = tmp(2); % Store beta coefficient
+                        nb_reg = 1;
+                    end
+
+                case 'weighted_sum'
+                    % Stage 1 regression to estimate beta1
+                     beta1 = y_stage1'*x_stage1;
+                     nb_reg = 1;
+
+                case 'pca_make'
+                    [c,v,~,~,eps_]=pca( y_stage1','VariableWeights', x_stage1');
+                    var_exp = cumsum(eps_);
+                    num_pcs(sidx,pet_idx) = sum(var_exp<70);
+                    beta1 = v(:,1: num_pcs(sidx,pet_idx));
+                    nb_reg =   num_pcs(sidx,pet_idx) ;
             end
-            beta_mat(pet_idx,:) = beta1;
             % Save beta1 as a regressor from stage 1
             writematrix(beta1, fullfile(pet_save_dir, [subj_nam, '_react_stage1_beta1.txt']));
 
@@ -124,17 +145,17 @@ function REACT_glm_win(save_dir, subj_list, pet_atlas_file, mask_file, subjs)
             % Stage 2: Normalize and apply beta1 across stage2_mask
             y = y';
             y_stage2 = y(:,stage2_mask(:));
-            x_stage2 = (beta1 - mean(beta1)) / std(beta1);
+            x_stage2 = (beta1 - mean(beta1)) ./ std(beta1);
 
             % Perform regression on each voxel within the stage2 mask
-            beta2 = nan(size(y_stage2, 2), nb_pet_vol);
+            beta2 = nan(size(y_stage2, 2), nb_reg);
             for k = 1:size(y_stage2, 2)
-                tmp = regress(y_stage2(:, k), [ones(size(x_stage2)), x_stage2, nui_mat]);
+                tmp = regress(y_stage2(:, k), [ones(size(x_stage2,1),1), x_stage2, nui_mat]);
                 beta2(k, :) = tmp(2:size(x_stage2, 2)+1);
             end
 
             % Save beta2 as maps within the MNI brain template
-            for k = 1:nb_pet_vol
+            for k = 1:nb_reg
                 tmp_vol = stdbrain;
                 tmp_vol.fname = fullfile(pet_save_dir, sprintf('%s_react_stage2_map%d.nii', subj_nam, k));
                 tmp_vol.dt = [spm_type('float32'), spm_platform('bigend')];

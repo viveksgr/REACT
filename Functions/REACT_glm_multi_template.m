@@ -50,31 +50,31 @@ function REACT_glm_multi_template(save_dir, subj_list, pet_atlas_file, mask_file
         fmri_data = spm_read_vols(vol_fmri);
 
         % Load masks
-        stage1_mask = spm_read_vols(spm_vol(mask_file{1}.stage1_mask)) > 0;
         stage2_mask = spm_read_vols(spm_vol(mask_file{1}.stage2_mask)) > 0;
 
+        % stage1_mask = stage2_mask;
         % Load all PET templates and reshape into design matrix
         x_stage1 = [];
         for pet_idx = 1:nb_templates
+             
             pet_file = pet_atlas_file{pet_idx};
             if endsWith(pet_file, '.gz')
                 pet_file = decompress_nifti(pet_file);
             end
             pet_data = spm_read_vols(spm_vol(pet_file));
-            x_stage1 = [x_stage1, pet_data(stage1_mask)];
+            x_stage1 = [x_stage1, pet_data(stage2_mask)];
         end
 
         % Normalize fMRI data
         rsfmri = reshape(fmri_data, [], size(fmri_data, 4));
         switch norm_meth
             case 'zscore'
-                y_stage1 = (rsfmri(stage1_mask(:), :) - mean(rsfmri(stage1_mask(:), :), 1)) ./ std(rsfmri(stage1_mask(:), :), 0, 1);
+                y_stage1 = (rsfmri(stage2_mask(:), :) - mean(rsfmri(stage2_mask(:), :), 1)) ./ std(rsfmri(stage2_mask(:), :), 0, 1);
             case 'demean'
-                y_stage1 = rsfmri(stage1_mask(:), :) - mean(rsfmri(stage1_mask(:), :), 1);
+                y_stage1 = rsfmri(stage2_mask(:), :) - mean(rsfmri(stage2_mask(:), :), 1);
             otherwise
-                y_stage1 = rsfmri(stage1_mask(:), :);
+                y_stage1 = rsfmri(stage2_mask(:), :);
         end
-
 
         % Stage 1 GLM: Regress spatial beta maps against PET templates for each time step
         x_stage1 = [ones(size(x_stage1, 1), 1), x_stage1]; % Add intercept
@@ -85,6 +85,7 @@ function REACT_glm_multi_template(save_dir, subj_list, pet_atlas_file, mask_file
             beta = x_stage1 \ y_stage1(:, time_idx); % Regress against PET templates
             beta_time_series(time_idx, :) = beta(2:end)'; % Store coefficients (exclude intercept)
         end
+
         % Stage 2 GLM: Regress receptor time series (beta_time_series) for each voxel time series
         y_stage2 = rsfmri(stage2_mask(:), :)'; % Time series for each voxel in stage 2 mask
         x_stage2 = beta_time_series; % Receptor time series as regressors
@@ -99,8 +100,17 @@ function REACT_glm_multi_template(save_dir, subj_list, pet_atlas_file, mask_file
 
         % Save beta maps for stage 2
         for pet_idx = 1:nb_templates
+             pet_file = pet_atlas_file{pet_idx};
+            [~, pet_nam, ~] = fileparts(pet_file);
+             pet_save_dir = fullfile(save_dir, ['react_mask_', pet_nam(1:end-4)]);
+            if ~exist(pet_save_dir, 'dir')
+                mkdir(pet_save_dir);
+            end
+
+
+
             tmp_vol = stdbrain;
-              tmp_vol.fname = fullfile(save_dir, sprintf('%s_react_stage2_map%d.nii', subj_nam, pet_idx));
+            tmp_vol.fname = fullfile(pet_save_dir, sprintf('%s_react_stage2_map%d.nii', subj_nam, 1));
               
             % tmp_vol.fname = fullfile(save_dir, sprintf('stage2_map_template%d.nii', pet_idx));
             tmp_vol.dt = [spm_type('float32'), spm_platform('bigend')];
